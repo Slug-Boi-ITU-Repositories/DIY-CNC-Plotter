@@ -55,6 +55,7 @@ float zMM = 0;
 // Time since last step
 unsigned long lastStepTimeX = 0;
 unsigned long lastStepTimeY = 0;
+unsigned ling lastStepTimeZ = 0;
 
 // Step amount toggled with joystick
 unsigned int button = 0;
@@ -87,8 +88,8 @@ float stepsToMM(int steps) {
   return float(steps) / 25;
 }
 
-// Speed between 0.0-1.0
-// lastStepTime is the time of the last step
+// Speed between 0.0-1.0.
+// lastStepTime is the time of the last step.
 // stepDirectionSign is a flipable boolean to adjust which axis moves what way on joystick
 void driveAxis(float speed, unsigned long &lastStepTime, int stepDirectionSign, int stepAmount, A4988 stepper, Axis axis) {
   if (speed == 0.0) return;
@@ -97,7 +98,7 @@ void driveAxis(float speed, unsigned long &lastStepTime, int stepDirectionSign, 
   float delayMs = MAX_STEP_DELAY_MS - (fabs(speed) * (MAX_STEP_DELAY_MS - MIN_STEP_DELAY_MS));
 
   if (millis() - lastStepTime >= delayMs) {
-    int dir = (speed > 0 ? 1 : -1) * stepDirectionSign;
+    int dir = (speed > 0 ? 1 : -1) * stepDirectionSign; // TODO: is dir not the same as stepDirectionSign. Also speed is always > 0 here. 
     if ( dir < 0 && xMinTrigger()) {
       return;
     }
@@ -124,7 +125,32 @@ void driveAxis(float speed, unsigned long &lastStepTime, int stepDirectionSign, 
 
 bool xMinTrigger() {
   return LOW;
-  return digitalRead(LIMIT_Y_MIN) == HIGH;
+  return digitalRead(LIMIT_Y_MIN) == HIGH; // TODO: Is this not dead code because of return above?
+}
+
+void calibrateAxis(A4988 stepper) {
+  int stepsForward = 0;
+  int stepsBackward = 0;
+  const int stepAmount = 5;
+
+  // Move forward until hitting limit switch
+  while (!axisMaxTrigger) { 
+    stepper.move(stepAmount);
+    stepsForward += stepAmount;
+  }
+  stepper.move(stepsForward * -1); // Move back to starting spot
+
+  // Move backward until hittin limit switch
+  while (!axisMinTrigger) {
+    stepper.move(stepAmount * -1);
+    stepsBackward += stepAmount;
+  }
+  stepper.move(stepsBackward); // Move back to starting spot
+}
+
+void calibration() {
+  calibrateAxis(StepperX);
+  calibrateAxis(StepperY);
 }
 
 void setup() {
@@ -148,7 +174,6 @@ void setup() {
 }
 
 void loop() {
-    // Tell motor to rotate 360 degrees. That's it.
     vertValue = analogRead(vertPin);
     horValue = analogRead(horPin);
     button = digitalRead(buttonPin);
@@ -169,7 +194,7 @@ void loop() {
 
     driveAxis(speedY, lastStepTimeY, 1, stepAmount, StepperY, Y);
     driveAxis(speedX, lastStepTimeX, 1, stepAmount, StepperX, X);
-    driveAxis(speedZ, lastStepTimeX, 1, stepAmount, StepperZ, Z);
+    driveAxis(speedZ, lastStepTimeZ, 1, stepAmount, StepperZ, Z);
 
     previousB = button; 
 }
