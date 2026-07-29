@@ -139,6 +139,7 @@ void calibrateAxis(A4988 stepper) {
     stepsForward += stepAmount;
   }
   stepper.move(stepsForward * -1); // Move back to starting spot
+  stepsForward -= stepAmount; // Don't include steps that hit the switch
 
   // Move backward until hittin limit switch
   while (!axisMinTrigger) {
@@ -146,6 +147,7 @@ void calibrateAxis(A4988 stepper) {
     stepsBackward += stepAmount;
   }
   stepper.move(stepsBackward); // Move back to starting spot
+  stepsBackward -= stepAmount; // Don't include steps that hit the switch
 }
 
 void calibration() {
