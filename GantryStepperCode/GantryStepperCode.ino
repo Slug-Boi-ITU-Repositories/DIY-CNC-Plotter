@@ -229,7 +229,7 @@ void setup() {
     lcd.print("y:" + String(yMM, 1));
     lcd.setCursor(0, 1);
     lcd.print("z:" + String(zMM, 1));
-    calibreation();
+    calibration();
 }
 
 void loop() {
