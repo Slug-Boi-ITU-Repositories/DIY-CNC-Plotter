@@ -65,6 +65,16 @@ unsigned int previousB = LOW;
 // Limit switches
 const int LIMIT_Y_MIN = 2;
 
+// Total possible steps on each axis
+unsigned int xTotalSteps = 0;
+unsigned int yTotalSteps = 0;
+unsigned int zTotalSteps = 0;
+
+// Current possition in steps
+unsigned int xCurrentSteps = 0;
+unsigned int yCurrentSteps = 0;
+unsigned int zCurrentSteps = 0;
+
 // returns a signed "speed" value
 // magnitude 0.0-1.0 based on a squared curve for fine control near center
 float getAxisSpeed(int rawValue) {
@@ -128,31 +138,77 @@ bool xMinTrigger() {
   return digitalRead(LIMIT_Y_MIN) == HIGH; // TODO: Is this not dead code because of return above?
 }
 
-void calibrateAxis(A4988 stepper) {
+void calibrateAxis(A4988 stepper, unsigned int &totalSteps, unsigned int &currentSteps) {
   int stepsForward = 0;
   int stepsBackward = 0;
-  const int stepAmount = 5;
+  const int stepAmount = 25; // 1 mm
+  const int closeCalibrationSteps = 50; // 2 mm
 
   // Move forward until hitting limit switch
   while (!axisMaxTrigger) { 
     stepper.move(stepAmount);
     stepsForward += stepAmount;
   }
-  stepper.move(stepsForward * -1); // Move back to starting spot
-  stepsForward -= stepAmount; // Don't include steps that hit the switch
+  stepper.move((stepAmount + closeCalirationSteps) * -1); // Move back to starting spot
+  stepsForward -= stepAmount + closeCalibrationSteps; // Don't include steps that hit the switch
+
+  // Move slow to get more percise position
+  while (!axisMaxTrigger) {
+    stepper.move(1);
+    stepsForward++;
+  }
+  stepper.move(stepsForward * -1);
+  stepsForward--;
 
   // Move backward until hittin limit switch
   while (!axisMinTrigger) {
     stepper.move(stepAmount * -1);
     stepsBackward += stepAmount;
   }
+  stepper.move(stepAmount + closeCalibrationSteps);
+  stepsBackward -= StepAmount + closeCalibrationSteps;
+
+  while (!axisMinTrigger) {
+    stepper.move(-1);
+    stepsBackward++;
+  }
   stepper.move(stepsBackward); // Move back to starting spot
-  stepsBackward -= stepAmount; // Don't include steps that hit the switch
+  stepsBackward--; // Don't include steps that hit the switch
+  
+  currentSteps = stepsBackward;
+  
+  totalSteps = stepsForward + stepsBackward;
+}
+
+// Assumes that z axis is already possitioned at z = 0
+void calibrateZ(unsigned int &totalSteps, unsigned int &currentSteps) {
+  int stepsUp = 0;
+  const int stepAmount = 25; // 1 mm
+  const int closeCalibrationSteps = 50; // 2 mm
+  const int backOffSteps = 100; // Back off 4 mm
+
+  // Rough calibreation
+  while (!upMaxTrigger) {
+    StepperZ.move(stepAmount);
+    stepsUp += stepAmount;
+  }
+  StepperZ.move(-1*(closeCalibrationSteps + stepAmount));
+  stepsUp -= stepAmount + closeCalibrationSteps; // Move back to do precise calibration
+  
+  while (!upMaxTrigger) {
+    StepperZ.move(1);
+    stepsUp++;
+  }
+  stepsUp--; // Don't include steps that hit the switch
+  StepperZ.move(backOffSteps*-1) // Back away from top
+  totalSteps = stepsUp;
+  currentSteps = totalSteps -(backOffSteps - 1);
 }
 
 void calibration() {
-  calibrateAxis(StepperX);
-  calibrateAxis(StepperY);
+  calibrateAxis(StepperX, &xTotalSteps, &xCurrentSteps);
+  calibrateAxis(StepperY, &yTotalSteps, &yCurrentSteps);
+  calibrateZ(&zTotalSteps, &zCurrentSteps);
 }
 
 void setup() {
@@ -173,6 +229,7 @@ void setup() {
     lcd.print("y:" + String(yMM, 1));
     lcd.setCursor(0, 1);
     lcd.print("z:" + String(zMM, 1));
+    calibreation();
 }
 
 void loop() {
