@@ -12,17 +12,20 @@
 #define STEP_X 10
 #define DIR_Z 13 
 #define STEP_Z 11
+#define MS1 22
+#define MS2 24
+#define MS3 26
 
-A4988 StepperX(MOTOR_STEPS, DIR_X, STEP_X);
-A4988 StepperY(MOTOR_STEPS, DIR_Y, STEP_Y);
-A4988 StepperZ(MOTOR_STEPS, DIR_Z, STEP_Z);
+A4988 StepperX(MOTOR_STEPS, DIR_X, STEP_X, MS1, MS2, MS3);
+A4988 StepperY(MOTOR_STEPS, DIR_Y, STEP_Y, MS1, MS2, MS3);
+A4988 StepperZ(MOTOR_STEPS, DIR_Z, STEP_Z, MS1, MS2, MS3);
 
 MultiDriver controller(StepperX, StepperY, StepperZ);
 
 const int MICROSTEP = 8;
 
 // Setup LCD (rs, e, d4, d5, d6, d7, d8);
-LiquidCrystal lcd(6, 7, 5, 4, 3, 2);
+LiquidCrystal lcd(6, 7, 4, 3, 5, 2);
 // Axis enum 
 enum Axis {
   X,
@@ -36,12 +39,12 @@ const int CENTER = 512;
 const int MAX_DEVIATION = 512;
 
 // Tunable delay consts for delays between move commands
-const float MIN_STEP_DELAY_MS = 2.0;   // full deflection
-const float MAX_STEP_DELAY_MS = 40.0;  // lowest deflection
+const float MIN_STEP_DELAY_MS = 0.0;   // full deflection
+const float MAX_STEP_DELAY_MS = 80.0;  // lowest deflection
 
 // Calibration delay for stick press
 const int CALIBRATION_DELAY = 1500;
-int lastPressedCalibration = 0;
+unsigned long lastPressedCalibration = 0;
 
 // Joystick Pins
 const int vertPin = A0;
@@ -56,9 +59,9 @@ int horValue = 511;
 int zValue = 511;
 
 // Current position
-int xSteps = 0;
-int ySteps = 0;
-int zSteps = 0;
+long xSteps = 0;
+long ySteps = 0;
+long zSteps = 0;
 float xMM = 0;
 float yMM = 0;
 float zMM = 0;
@@ -71,7 +74,7 @@ unsigned long lastStepTimeZ = 0;
 // Step amount toggled with joystick
 unsigned int L_Button = 0;
 unsigned int R_Button = 0;
-int stepAmount = 100;
+int stepAmount = 200;
 int stepAmountZ = 50;
 unsigned int previousRB = HIGH;
 unsigned int previousLB = HIGH;
@@ -85,14 +88,14 @@ const int Z_LIMIT_MAX = 33;
 
 
 // Total possible steps on each axis
-unsigned int xTotalSteps = 0;
-unsigned int yTotalSteps = 0;
-unsigned int zTotalSteps = 0;
+unsigned long xTotalSteps = 0;
+unsigned long yTotalSteps = 0;
+unsigned long zTotalSteps = 0;
 
 // Current possition in steps
-unsigned int xCurrentSteps = 0;
-unsigned int yCurrentSteps = 0;
-unsigned int zCurrentSteps = 0;
+unsigned long xCurrentSteps = 0;
+unsigned long yCurrentSteps = 0;
+unsigned long zCurrentSteps = 0;
 
 // returns a signed "speed" value
 // magnitude 0.0-1.0 based on a squared curve for fine control near center
@@ -131,21 +134,21 @@ int driveAxis(float speed, unsigned long &lastStepTime, int stepAmount, A4988 st
   float delayMs = MAX_STEP_DELAY_MS - (fabs(speed) * (MAX_STEP_DELAY_MS - MIN_STEP_DELAY_MS));
 
   int steps = 0;
-  if (millis() - lastStepTime >= delayMs) { 
-    if ( speed < 0 && !digitalRead(minTrigger)) {
-      Serial.println("ONE");
-      return 0;
-    }
-    if ( speed > 0 && !digitalRead(maxTrigger)) {
-      Serial.println("TWO");
-      return 0;
-    }
-    
-    int dir = speed < 0 ? -1 : 1; 
+  // if (millis() - lastStepTime >= delayMs) { 
+  if ( speed < 0 && !digitalRead(minTrigger)) {
+    Serial.println("ONE");
+    return 0;
+  }
+  if ( speed > 0 && !digitalRead(maxTrigger)) {
+    Serial.println("TWO");
+    return 0;
+  }
+  
+  int dir = speed < 0 ? -1 : 1; 
 
-    steps = stepAmount*dir;
-    lastStepTime = millis();
-    int finalSteps;
+  steps = stepAmount*speed;
+  lastStepTime = millis();
+  int finalSteps;
     // switch(axis) {
     //   case X:
     //     finalSteps = xSteps + steps;
@@ -164,7 +167,7 @@ int driveAxis(float speed, unsigned long &lastStepTime, int stepAmount, A4988 st
     //     }
     //     break;
     // }
-  }
+  // }
   return steps;
 }
 
@@ -175,23 +178,23 @@ int driveAxis(float speed, unsigned long &lastStepTime, int stepAmount, A4988 st
   float delayMs = MAX_STEP_DELAY_MS - (fabs(speed) * (MAX_STEP_DELAY_MS - MIN_STEP_DELAY_MS));
 
   int steps = 0;
-  if (millis() - lastStepTime >= delayMs) { 
-    if ( speed > 0 && !digitalRead(maxTrigger)) {
-      return 0;
-    }
+  //if (millis() - lastStepTime >= delayMs) { 
+  if ( speed > 0 && !digitalRead(maxTrigger)) {
+    return 0;
+  }
 
-    int dir = speed < 0 ? -1 : 1; 
-    
-    steps = stepAmount*dir;
-    lastStepTime = millis();
+  int dir = speed < 0 ? -1 : 1; 
+  
+  steps = stepAmount*speed;
+  lastStepTime = millis();
 
-    int finalSteps = zSteps + steps;
+  int finalSteps = zSteps + steps;
     // if (finalSteps < 0) {
     //   steps = -zSteps;
     // } else if (finalSteps > zTotalSteps) {
     //   steps = zTotalSteps - zSteps;
     // }
-  }
+  //}
   return steps;
 }
 
@@ -200,12 +203,12 @@ bool xMinTrigger() {
   return digitalRead(Y_LIMIT_MIN) == HIGH; // TODO: Is this not dead code because of return above?
 }
 
-void calibrateAxis(A4988 stepper, unsigned int *totalSteps, unsigned int *currentSteps, int axisMaxTrigger, int axisMinTrigger) {
+void calibrateAxis(A4988 stepper, unsigned long *totalSteps, unsigned long *currentSteps, int axisMaxTrigger, int axisMinTrigger) {
   Serial.println("Starting Callibration");
-  int stepsForward = 0;
-  int stepsBackward = 0;
-  const int stepAmount = 75 * MICROSTEP; // 3 mm
-  const int closeCalibrationSteps = 50 * MICROSTEP; // 2 mm
+  long stepsForward = 0;
+  long stepsBackward = 0;
+  const int stepAmount = 60 * MICROSTEP; // 3 mm
+  const int closeCalibrationSteps = 10 * MICROSTEP; // 2 mm
 
   // Move forward until hitting limit switch
   Serial.println("Going forward!");
@@ -257,10 +260,10 @@ void calibrateAxis(A4988 stepper, unsigned int *totalSteps, unsigned int *curren
 }
 
 // Assumes that z axis is already possitioned at z = 0
-void calibrateZ(unsigned int *totalSteps, unsigned int *currentSteps) {
+void calibrateZ(unsigned long *totalSteps, unsigned long *currentSteps) {
   unsigned int stepsUp = 0;
   const int stepAmount = 50 * MICROSTEP; // 3 mm
-  const int closeCalibrationSteps = 25 * MICROSTEP; // 2 mm
+  const int closeCalibrationSteps = 10 * MICROSTEP; // 2 mm
   const int backOffSteps = 75; // Back off 4 mm
 
   // Rough calibreation
@@ -354,43 +357,80 @@ void raisePen(int amount) {
   zSteps += MMToSteps(amount);
 }
 
-void drawSquare() {
-  moveToPoint(14, 42);
+void drawSquare(int lowerLeft_X, int lowerLeft_Y) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.println("Drawing Square");
+
+  int size = 30; 
+  int upperLeft_X = lowerLeft_X;
+  int upperLeft_Y = lowerLeft_Y + size; 
+  int upperRight_X = upperLeft_X + size;
+  int upperRight_Y = upperLeft_Y;
+  int lowerRight_X = upperRight_X;
+  int lowerRight_Y = upperRight_Y - size;
+  moveToPoint(lowerLeft_X, lowerLeft_Y);
   penToPaper();
-  moveToPoint(14, 62);
-  moveToPoint(34, 62);
-  moveToPoint(34, 42);
-  moveToPoint(14, 42);
+  moveToPoint(upperLeft_X, upperLeft_Y);
+  moveToPoint(upperRight_X, upperRight_Y);
+  moveToPoint(lowerRight_X, lowerRight_Y);
+  moveToPoint(lowerLeft_X, lowerLeft_Y);
 }
 
-void drawRhombus() {
-  moveToPoint(34, 42);
+void drawRhombus(int lowerLeft_X, int lowerLeft_Y) {
+  int size = 30;
+  int half = size / 2;
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.println("Drawing Rhombus");
+
+  int bottom_X = lowerLeft_X + half;
+  int bottom_Y = lowerLeft_Y;
+  int right_X = lowerLeft_X + size;
+  int right_Y = lowerLeft_Y + half;
+  int top_X = lowerLeft_X + half;
+  int top_Y = lowerLeft_Y + size;
+  int left_X = lowerLeft_X;
+  int left_Y = lowerLeft_Y + half;
+
+  moveToPoint(bottom_X, bottom_Y);
   penToPaper();
-  moveToPoint(44, 52);
-  moveToPoint(34, 62);
-  moveToPoint(24, 52);
-  moveToPoint(34, 42);
+  moveToPoint(right_X, right_Y);
+  moveToPoint(top_X, top_Y);
+  moveToPoint(left_X, left_Y);
+  moveToPoint(bottom_X, bottom_Y);
 }
 
-void drawParallelLines() {
-  lcd.setCursor(0,0);
+void drawParallelLines(int lowerLeft_X, int lowerLeft_Y) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
   lcd.println("Drawing P Lines");
-  moveToPoint(68, 100);
+
+  int width = 36;
+  int lineCount = 5;
   int offset = 10;
-  for (int i = 0; i < 5; i++ ) {
+
+  int leftX = lowerLeft_X;
+  int rightX = lowerLeft_X + width;
+  int bottomY = lowerLeft_Y;
+
+  moveToPoint(leftX, bottomY);
+  for (int i = 0; i < lineCount; i++) {
     penToPaper();
-    moveToPoint(104, 100+offset*i);
-    raisePen(10); 
-    moveToPoint(68, 100+offset*(i+1));
-  } 
+    moveToPoint(rightX, bottomY + offset * i);
+    raisePen(10);
+    moveToPoint(leftX, bottomY + offset * (i + 1));
+  }
 }
 
-void drawCircle() {
-  const int centerX = 75;
-  const int centerY = 150;
-  const int radius = 20;
+void drawCircle(int center_X, int center_Y) {
+  const int centerX = center_X;
+  const int centerY = center_Y;
+  const int radius = 10;
   const int segments = 10000; // more segments = smoother circle, but slower
 
+  lcd.clear();
   lcd.setCursor(0, 0);
   lcd.println("Drawing Circle");
 
@@ -409,10 +449,68 @@ void drawCircle() {
   }
 }
 
-void repeatDraw(int repeats, void (*draw)()) {
-  for ( int i = 0; i < repeats; i++ ) {
-    draw();
+void drawCircle(int center_X, int center_Y, int radius = 20) {
+  const int centerX = center_X;
+  const int centerY = center_Y;
+  const int segments = 10000; // more segments = smoother circle, but slower
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.println("Drawing Circle");
+
+  // Move to the starting point on the circle (angle = 0), pen up
+  moveToPoint(centerX + radius, centerY);
+
+  // Lower the pen
+  penToPaper();
+
+  // Step around the circle back to the start
+  for (int i = 1; i <= segments; i++) {
+    float angle = (2.0 * PI * i) / segments;
+    float x = centerX + radius * cos(angle);
+    float y = centerY + radius * sin(angle);
+    moveToPoint(x, y);
   }
+}
+
+void drawRectangle(int lowerLeft_X, int lowerLeft_Y, int width, int height) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.println("Drawing rectangle");
+
+  int upperLeft_X = lowerLeft_X;
+  int upperLeft_Y = lowerLeft_Y + height;
+  int upperRight_X = upperLeft_X + width;
+  int upperRight_Y = upperLeft_Y;
+  int lowerRight_X = upperRight_X;
+  int lowerRight_Y = lowerLeft_Y;
+
+  moveToPoint(lowerLeft_X, lowerLeft_Y);
+  penToPaper();
+  moveToPoint(upperLeft_X, upperLeft_Y);
+  moveToPoint(upperRight_X, upperRight_Y);
+  moveToPoint(lowerRight_X, lowerRight_Y);
+  moveToPoint(lowerLeft_X, lowerLeft_Y);
+}
+
+void fullTestRun() {
+  // repeat calibration and draw cycle 
+  int tests = 3;
+  for (int i = 0; i < tests; i++ ) {
+    calibration();
+    repeatDraw(tests, drawSquare, 10, 100);
+    repeatDraw(tests, drawRhombus, 70, 130);
+    repeatDraw(tests, drawParallelLines, 100, 85);
+    repeatDraw(tests, drawCircle, 60, 120);
+    penToPaper();
+  }
+}
+
+void repeatDraw(int repeats, void (*draw)(int, int), int arg1, int arg2) {
+  for ( int i = 0; i < repeats; i++ ) {
+    draw(arg1, arg2);
+  }
+  raisePen();
 }
 
 // void checkSkippingSteps() {
@@ -423,9 +521,9 @@ void repeatDraw(int repeats, void (*draw)()) {
 
 void setup() {
     // Set target motor RPM to 1RPM and microstepping to 1 (full step mode)
-    StepperY.begin(60, MICROSTEP);
-    StepperX.begin(60, MICROSTEP);
-    StepperZ.begin(60, MICROSTEP);
+    StepperY.begin(120, MICROSTEP);
+    StepperX.begin(120, MICROSTEP);
+    StepperZ.begin(120, MICROSTEP);
     pinMode(vertPin, INPUT);
     pinMode(horPin, INPUT);
     pinMode(zPin, INPUT);
@@ -483,11 +581,21 @@ void loop() {
       if ( millis() - lastPressedCalibration < CALIBRATION_DELAY ) {
         lcd.setCursor(0, 0);
         lcd.print("Calibrating...");
-        calibration();
-        drawCircle();
+        // calibration();
+        // drawCircle(30, 140, 10);
+        // raisePen();
+        // drawCircle(30, 160, 10);
+        // raisePen();
+        // drawRectangle(40, 140, 40, 20);
+        // raisePen();
+        // drawCircle(85,150, 10);
+        // moveToCorner();
+
+        fullTestRun();
       }
 
       lastPressedCalibration = millis();
+      Serial.println(lastPressedCalibration);
     }
 
     float speedY = getAxisSpeed(vertValue);
@@ -502,29 +610,40 @@ void loop() {
     int yMoves = driveAxis(speedY, lastStepTimeY, stepAmount, StepperY, Y, Y_LIMIT_MIN, Y_LIMIT_MAX);
     int xMoves = driveAxis(speedX, lastStepTimeX, stepAmount, StepperX, X, X_LIMIT_MIN, X_LIMIT_MAX);
     int zMoves = driveAxis(speedZ, lastStepTimeZ, stepAmountZ, StepperZ, Z, Z_LIMIT_MAX);
+    xSteps += xMoves;
+    ySteps += yMoves;
+    zSteps += zMoves;
     controller.move(xMoves, yMoves, zMoves);
 
     // Serial.println("y speed: " + String(yMoves));
     // Serial.println("x speed: " + String(xMoves));
     // Serial.println("z speed: " + String(zMoves));
     
-    if (yMoves != 0) {
-      yMM += stepsToMM(yMoves);
-      lcd.setCursor(8, 0);
-      lcd.print("y:" + String(yMM,1));
+    if ( xTotalSteps == 0 ) {
+      lcd.setCursor(0,0);
+      lcd.println("Please");
+      lcd.setCursor(0,1);
+      lcd.println("Calibrate");
+    } else {
+      if (yMoves != 0) {
+        yMM += stepsToMM(yCurrentSteps);
+        lcd.setCursor(8, 0);
+        lcd.print("y:" + String(yMM,1));
+      }
+      
+      if (xMoves != 0) {
+        xMM += stepsToMM(xCurrentSteps);
+        lcd.setCursor(0, 0);
+        lcd.print("x:" + String(xMM,1));
+      }
+    
+      if (zMoves != 0) {
+        zMM += stepsToMM(zCurrentSteps);
+        lcd.setCursor(0, 1);
+        lcd.print("z:" + String(zMM,1));
+      }
     }
     
-    if (xMoves != 0) {
-      xMM += stepsToMM(xMoves);
-      lcd.setCursor(0, 0);
-      lcd.print("x:" + String(xMM,1));
-    }
-  
-    if (zMoves != 0) {
-      zMM += stepsToMM(zMoves);
-      lcd.setCursor(0, 1);
-      lcd.print("z:" + String(zMM,1));
-    }
 
     previousRB = R_Button;
     previousLB = L_Button;
