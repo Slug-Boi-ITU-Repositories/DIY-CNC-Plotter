@@ -3,7 +3,7 @@
 #include <MultiDriver.h>
 #include "LiquidCrystal.h"
 
-// using a 200-step motor (most common)
+// using a 200-step motor
 #define MOTOR_STEPS 200
 // configure the pins connected
 #define DIR_Y 8
@@ -74,8 +74,8 @@ unsigned long lastStepTimeZ = 0;
 // Step amount toggled with joystick
 unsigned int L_Button = 0;
 unsigned int R_Button = 0;
-int stepAmount = 200;
-int stepAmountZ = 50;
+int stepAmount = 25 * MICROSTEP;
+int stepAmountZ = 5 * MICROSTEP;
 unsigned int previousRB = HIGH;
 unsigned int previousLB = HIGH;
 
@@ -91,11 +91,6 @@ const int Z_LIMIT_MAX = 33;
 unsigned long xTotalSteps = 0;
 unsigned long yTotalSteps = 0;
 unsigned long zTotalSteps = 0;
-
-// Current possition in steps
-unsigned long xCurrentSteps = 0;
-unsigned long yCurrentSteps = 0;
-unsigned long zCurrentSteps = 0;
 
 // returns a signed "speed" value
 // magnitude 0.0-1.0 based on a squared curve for fine control near center
@@ -116,15 +111,15 @@ float getAxisSpeed(int rawValue) {
 }
 
 // 25 steps should equal 1mm
-float stepsToMM(int steps) {
-  return float(steps) / (25*MICROSTEP);
+float stepsToMM(long steps) {
+  return float(steps / (25*MICROSTEP));
 }
 
-int MMToSteps(float mm) {
-  return int(mm * 25 * MICROSTEP);
+long MMToSteps(float mm) {
+  return long(mm * 25 * MICROSTEP);
 }
 
-// Speed between 0.0-1.0.
+// Speed between -1.0 - 1.0.
 // lastStepTime is the time of the last step.
 // stepDirectionSign is a flipable boolean to adjust which axis moves what way on joystick
 int driveAxis(float speed, unsigned long &lastStepTime, int stepAmount, A4988 stepper, Axis axis, int minTrigger, int maxTrigger) {
@@ -134,13 +129,10 @@ int driveAxis(float speed, unsigned long &lastStepTime, int stepAmount, A4988 st
   float delayMs = MAX_STEP_DELAY_MS - (fabs(speed) * (MAX_STEP_DELAY_MS - MIN_STEP_DELAY_MS));
 
   int steps = 0;
-  // if (millis() - lastStepTime >= delayMs) { 
   if ( speed < 0 && !digitalRead(minTrigger)) {
-    Serial.println("ONE");
     return 0;
   }
   if ( speed > 0 && !digitalRead(maxTrigger)) {
-    Serial.println("TWO");
     return 0;
   }
   
@@ -149,25 +141,27 @@ int driveAxis(float speed, unsigned long &lastStepTime, int stepAmount, A4988 st
   steps = stepAmount*speed;
   lastStepTime = millis();
   int finalSteps;
-    // switch(axis) {
-    //   case X:
-    //     finalSteps = xSteps + steps;
-    //     if (finalSteps < 0) {
-    //       steps = -xSteps;
-    //     } else if (finalSteps > xTotalSteps) {
-    //       steps = xTotalSteps - xSteps;
-    //     }
-    //     break;
-    //   case Y:
-    //     finalSteps = ySteps + steps;
-    //     if (finalSteps < 0) {
-    //       steps = -ySteps;
-    //     } else if (finalSteps > yTotalSteps) {
-    //       steps = yTotalSteps - ySteps;
-    //     }
-    //     break;
-    // }
-  // }
+  if (xTotalSteps > 0) {
+    switch(axis) {
+      case X:
+        finalSteps = xSteps + steps;
+        if (finalSteps < 0) {
+          steps = -xSteps;
+        } else if (finalSteps > xTotalSteps) {
+          steps = xTotalSteps - xSteps;
+        }
+        break;
+      case Y:
+        finalSteps = ySteps + steps;
+        if (finalSteps < 0) {
+          steps = -ySteps;
+        } else if (finalSteps > yTotalSteps) {
+          steps = yTotalSteps - ySteps;
+        }
+        break;
+    }
+  }
+
   return steps;
 }
 
@@ -177,8 +171,7 @@ int driveAxis(float speed, unsigned long &lastStepTime, int stepAmount, A4988 st
   // map |speed| (0-1) to a step delay (inverse relationship: faster speed = shorter delay)
   float delayMs = MAX_STEP_DELAY_MS - (fabs(speed) * (MAX_STEP_DELAY_MS - MIN_STEP_DELAY_MS));
 
-  int steps = 0;
-  //if (millis() - lastStepTime >= delayMs) { 
+  int steps = 0; 
   if ( speed > 0 && !digitalRead(maxTrigger)) {
     return 0;
   }
@@ -189,72 +182,61 @@ int driveAxis(float speed, unsigned long &lastStepTime, int stepAmount, A4988 st
   lastStepTime = millis();
 
   int finalSteps = zSteps + steps;
-    // if (finalSteps < 0) {
-    //   steps = -zSteps;
-    // } else if (finalSteps > zTotalSteps) {
-    //   steps = zTotalSteps - zSteps;
-    // }
-  //}
+  if (zTotalSteps > 0) {
+    if (finalSteps < 0) {
+      steps = -zSteps;
+    } else if (finalSteps > zTotalSteps) {
+      steps = zTotalSteps - zSteps;
+    }
+  }
   return steps;
-}
-
-bool xMinTrigger() {
-  return LOW;
-  return digitalRead(Y_LIMIT_MIN) == HIGH; // TODO: Is this not dead code because of return above?
 }
 
 void calibrateAxis(A4988 stepper, unsigned long *totalSteps, unsigned long *currentSteps, int axisMaxTrigger, int axisMinTrigger) {
   Serial.println("Starting Callibration");
   long stepsForward = 0;
   long stepsBackward = 0;
-  const int stepAmount = 60 * MICROSTEP; // 3 mm
-  const int closeCalibrationSteps = 10 * MICROSTEP; // 2 mm
+  const int stepAmount = 50 * MICROSTEP; // 2 mm
+  const int closeCalibrationSteps = 10 * MICROSTEP;
 
   // Move forward until hitting limit switch
-  Serial.println("Going forward!");
   while (digitalRead(axisMaxTrigger)) { 
     stepper.move(stepAmount);
     stepsForward += stepAmount;
     delay(5);
   }
-  Serial.println("Hit edge!");
   stepper.move((stepAmount + closeCalibrationSteps) * -1); // Move back to starting spot
   stepsForward -= stepAmount + closeCalibrationSteps; // Don't include steps that hit the switch
 
   // Move slow to get more percise position
-  Serial.println("Starting Slow move");
   while (digitalRead(axisMaxTrigger)) {
     stepper.move(1);
     stepsForward += 1;
     delay(5);
   }
-  Serial.println("Hit edge!");
-  stepper.move(stepsForward * -1);
+  stepper.move(-1);
+  delay(5);
   stepsForward -= 1;
+  stepper.move(stepsForward * -1);
 
   // Move backward until hittin limit switch
-  Serial.println("Starting backwards");
   while (digitalRead(axisMinTrigger)) {
     stepper.move(stepAmount * -1);
     stepsBackward += stepAmount;
     delay(5);
   }
-  Serial.println("Hit edge!");
   stepper.move(stepAmount + closeCalibrationSteps);
   stepsBackward -= stepAmount + closeCalibrationSteps;
 
-  Serial.println("Starting slow move");
   while (digitalRead(axisMinTrigger)) {
     stepper.move(-1);
     stepsBackward += 1;
-    delay(5);
+    delay(15);
   }
-  Serial.println("Hit edge!");
-  // Serial.println("Returning to start point");
-  stepper.move(50); // Move back to starting spot
-  // stepsBackward -= 1; // Don't include steps that hit the switch
+  stepper.move(1);
+  stepsBackward -= 1; // Don't include steps that hit the switch
   
-  *currentSteps = 50;
+  *currentSteps = 0;
   
   *totalSteps = stepsForward + stepsBackward;
 }
@@ -262,37 +244,25 @@ void calibrateAxis(A4988 stepper, unsigned long *totalSteps, unsigned long *curr
 // Assumes that z axis is already possitioned at z = 0
 void calibrateZ(unsigned long *totalSteps, unsigned long *currentSteps) {
   unsigned int stepsUp = 0;
-  const int stepAmount = 50 * MICROSTEP; // 3 mm
-  const int closeCalibrationSteps = 10 * MICROSTEP; // 2 mm
-  const int backOffSteps = 75; // Back off 4 mm
+  const int stepAmount = 50 * MICROSTEP; // 2 mm
+  const int closeCalibrationSteps = 10 * MICROSTEP;
 
   // Rough calibreation
-  Serial.println("Starting Calibration");
   while (digitalRead(Z_LIMIT_MAX)) {
     StepperZ.move(stepAmount);
     stepsUp += stepAmount;
-    // Serial.println("Steps moved: " + String(stepsUp));
     delay(5);
   }
-  Serial.println("Hit top!");
   StepperZ.move(-1*(closeCalibrationSteps + stepAmount));
-  // Serial.println("Moved down " + String(closeCalibrationSteps + stepAmount) + "steps");
   stepsUp -= stepAmount + closeCalibrationSteps; // Move back to do precise calibration
-  // Serial.println("Steps from bottom: " + String(stepsUp));
-  
-  Serial.println("Starting slow move");
+
   while (digitalRead(Z_LIMIT_MAX)) {
     StepperZ.move(1);
     stepsUp += 1;
-    // Serial.println("Steps moved " + String(stepsUp));
-    delay(5);
+    delay(15);
   }
-  Serial.println("Hit top!");
   StepperZ.move(-5);
-  // Serial.println("Moved down 5 steps");
   stepsUp -= 1; // Don't include steps that hit the switch
-  // Serial.println("Steps from bottom: " + String(stepsUp));
-  // StepperZ.move(-1*backOffSteps); // Back away from top
   *totalSteps = stepsUp;
   *currentSteps = stepsUp - 4;
 }
@@ -309,18 +279,23 @@ void calibration() {
   Serial.println("Current steps on Y: "+ String(ySteps));
 }
 
-void CheckCalibration(){
-  const int yAbsPoint = 1200; // 48 mm
-  const int xAbsPoint = 400; // 16 mm
-  const int zAbsPoint = 0;
-  const int xMove = xAbsPoint - xSteps;
-  const int yMove = yAbsPoint - ySteps;
-  const int zMove = zAbsPoint - zSteps;
-  controller.move(xMove, yMove, zMove);
+long checkMoveWithinRange(long numSteps, long currentSteps, long totalSteps) {
+  if (numSteps + currentSteps > totalSteps) {
+    return totalSteps - currentSteps;
+  }
+  if (numSteps + currentSteps < 0) {
+    return -1 * currentSteps;
+  }
+  return numSteps;
 }
 
 void moveToPoint(float x, float y, float z) {
-  const int stepsNeeded[] = {MMToSteps(x) - xSteps, MMToSteps(y) - ySteps, MMToSteps(z) - zSteps};
+  long stepsNeeded[] = {
+    checkMoveWithinRange(MMToSteps(x) - xSteps, xSteps, xTotalSteps), 
+    checkMoveWithinRange(MMToSteps(y) - ySteps, ySteps, yTotalSteps),
+    checkMoveWithinRange(MMToSteps(z) - zSteps, zSteps, zTotalSteps)
+  };
+
   controller.move(stepsNeeded[0], stepsNeeded[1], stepsNeeded[2]);
   xSteps += stepsNeeded[0];
   ySteps += stepsNeeded[1];
@@ -328,10 +303,7 @@ void moveToPoint(float x, float y, float z) {
 }
 
 void moveToPoint(float x, float y) {
-  const int stepsNeeded[] = {MMToSteps(x) - xSteps, MMToSteps(y) - ySteps};
-  controller.move(stepsNeeded[0], stepsNeeded[1], 0);
-  xSteps += stepsNeeded[0];
-  ySteps += stepsNeeded[1];
+  moveToPoint(x, y, stepsToMM(zSteps));
 }
 
 void moveToCorner() {
@@ -513,14 +485,7 @@ void repeatDraw(int repeats, void (*draw)(int, int), int arg1, int arg2) {
   raisePen();
 }
 
-// void checkSkippingSteps() {
-//   StepperZ.move(1000);
-//   delay(100);
-//   StepperZ.move(-1000);
-// }
-
 void setup() {
-    // Set target motor RPM to 1RPM and microstepping to 1 (full step mode)
     StepperY.begin(120, MICROSTEP);
     StepperX.begin(120, MICROSTEP);
     StepperZ.begin(120, MICROSTEP);
@@ -536,24 +501,8 @@ void setup() {
     pinMode(Z_LIMIT_MAX, INPUT_PULLUP);
     Serial.begin(9600);
     lcd.begin(16, 2);
-    // for (int i = 0; i < 3; i++ ) {
-    //   delay(2000);
-    //   calibration();
-    //   delay(2000);
-    //   repeatDraw(2, drawParallelLines);
-    //   penToPaper();
-    // }
-    
-    //drawSquare();
-    //drawRhombus();
     lcd.setCursor(0, 0);
-    lcd.print("Done!");
-    // lcd.setCursor(0, 0);
-    // lcd.print("x:" + String(stepsToMM(xSteps), 1));
-    // lcd.setCursor(8, 0);
-    // lcd.print("y:" + String(stepsToMM(ySteps), 1));
-    // lcd.setCursor(0, 1);
-    // lcd.print("z:" + String(stepsToMM(zSteps), 1));
+    lcd.print("Welcome!");
 }
 
 void loop() {
@@ -561,52 +510,50 @@ void loop() {
     horValue = analogRead(horPin);
     zValue = analogRead(zPin);
     L_Button = digitalRead(leftButtonPin);
-    // Serial.println(L_Button);
     R_Button = digitalRead(rightButtonPin);
-    // Serial.println(R_Button);
-
-    // Serial.println("y speed: " + String(vertValue));
-    // Serial.println("x speed: " + String(horValue));
-    // Serial.println("z speed: " + String(zValue));
-
- 
 
     if ( R_Button == LOW && previousRB == HIGH ) {
       lcd.setCursor(0, 0);
       lcd.print("Moving to corner");
       moveToCorner();
+
+      lcd.clear();
+      yMM = stepsToMM(ySteps);
+      lcd.setCursor(8, 0);
+      lcd.print("y:" + String(yMM,1));
+      xMM = stepsToMM(xSteps);
+      lcd.setCursor(0, 0);
+      lcd.print("x:" + String(xMM,1));
+      zMM = stepsToMM(zSteps);
+      lcd.setCursor(0, 1);
+      lcd.print("z:" + String(zMM,1));
     }
 
     if ( L_Button == LOW && previousLB == HIGH ) {
       if ( millis() - lastPressedCalibration < CALIBRATION_DELAY ) {
         lcd.setCursor(0, 0);
         lcd.print("Calibrating...");
-        // calibration();
-        // drawCircle(30, 140, 10);
-        // raisePen();
-        // drawCircle(30, 160, 10);
-        // raisePen();
-        // drawRectangle(40, 140, 40, 20);
-        // raisePen();
-        // drawCircle(85,150, 10);
-        // moveToCorner();
+        calibration();
 
-        fullTestRun();
+        lcd.clear();
+        yMM = stepsToMM(ySteps);
+        lcd.setCursor(8, 0);
+        lcd.print("y:" + String(yMM,1));
+        xMM = stepsToMM(xSteps);
+        lcd.setCursor(0, 0);
+        lcd.print("x:" + String(xMM,1));
+        zMM = stepsToMM(zSteps);
+        lcd.setCursor(0, 1);
+        lcd.print("z:" + String(zMM,1));
       }
 
       lastPressedCalibration = millis();
-      Serial.println(lastPressedCalibration);
     }
 
     float speedY = getAxisSpeed(vertValue);
     float speedX = getAxisSpeed(horValue); 
     float speedZ = getAxisSpeed(zValue) * -1;
-
-    // Serial.println("y speed: " + String(speedY));
-    // Serial.println("x speed: " + String(speedX));
-    // Serial.println("z speed: " + String(speedZ));
     
-
     int yMoves = driveAxis(speedY, lastStepTimeY, stepAmount, StepperY, Y, Y_LIMIT_MIN, Y_LIMIT_MAX);
     int xMoves = driveAxis(speedX, lastStepTimeX, stepAmount, StepperX, X, X_LIMIT_MIN, X_LIMIT_MAX);
     int zMoves = driveAxis(speedZ, lastStepTimeZ, stepAmountZ, StepperZ, Z, Z_LIMIT_MAX);
@@ -614,10 +561,6 @@ void loop() {
     ySteps += yMoves;
     zSteps += zMoves;
     controller.move(xMoves, yMoves, zMoves);
-
-    // Serial.println("y speed: " + String(yMoves));
-    // Serial.println("x speed: " + String(xMoves));
-    // Serial.println("z speed: " + String(zMoves));
     
     if ( xTotalSteps == 0 ) {
       lcd.setCursor(0,0);
@@ -626,19 +569,19 @@ void loop() {
       lcd.println("Calibrate");
     } else {
       if (yMoves != 0) {
-        yMM += stepsToMM(yCurrentSteps);
+        yMM = stepsToMM(ySteps);
         lcd.setCursor(8, 0);
         lcd.print("y:" + String(yMM,1));
       }
       
       if (xMoves != 0) {
-        xMM += stepsToMM(xCurrentSteps);
+        xMM = stepsToMM(xSteps);
         lcd.setCursor(0, 0);
         lcd.print("x:" + String(xMM,1));
       }
     
       if (zMoves != 0) {
-        zMM += stepsToMM(zCurrentSteps);
+        zMM = stepsToMM(zSteps);
         lcd.setCursor(0, 1);
         lcd.print("z:" + String(zMM,1));
       }
